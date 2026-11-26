@@ -26,7 +26,7 @@
     <Product>自动输入法切换</Product>
     <AssemblyTitle>自动输入法切换</AssemblyTitle>
     <Description>按前台窗口所属程序自动切换输入法中/英状态</Description>
-    <Version>1.0.0</Version>
+    <Version>2.0.0</Version>
     <Company>AutoSwitching</Company>
 
     <!-- 高 DPI 由 app.manifest 声明，net48 没有 ApplicationHighDpiMode 属性 -->
