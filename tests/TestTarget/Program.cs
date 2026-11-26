@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using System.Drawing;
 
 namespace TestTarget;
 
@@ -66,7 +68,9 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        ApplicationConfiguration.Initialize();
+        // .NET Framework 4.8 没有 ApplicationConfiguration.Initialize()。
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
 
         string? reportPath = null;
         int reportIndex = Array.IndexOf(args, "--report");
@@ -99,6 +103,8 @@ internal static class Program
         form.Controls.Add(box);
         form.Controls.Add(label);
 
+        // 只做一次聚焦，不要反复 Activate/Select。
+        // 反复激活会让 Windows 重置该窗口的 IME 状态，导致测出的结果不稳定。
         form.Shown += (_, _) => box.Focus();
 
         // 定时把当前 IME 状态写到报告文件，供外部验证。
@@ -138,18 +144,39 @@ internal static class Program
 
                     // 焦点信息
                     GetWindowThreadProcessId(hwnd, out uint tid);
-                    var gti = new GUITHREADINFO { cbSize = Marshal.SizeOf<GUITHREADINFO>() };
+
+                    // .NET Framework 4.8 没有 Marshal.SizeOf<T>()，用非泛型重载。
+                    var gti = new GUITHREADINFO { cbSize = Marshal.SizeOf(typeof(GUITHREADINFO)) };
                     GetGUIThreadInfo(tid, ref gti);
                     bool isFg = GetForegroundWindow() == form.Handle;
                     bool boxFocused = gti.hwndFocus == hwnd;
 
+                    // 诊断用：把焦点窗口、活动窗口、文本框、窗体、IME 窗口的句柄都写出来，
+                    // 便于判断 IME 状态到底挂在哪个窗口上。
+                    // 带上时间戳，便于判断报告是否还在被刷新（定时器是否已停止）。
                     File.WriteAllText(
                         reportPath,
-                        $"ctx={ctxState} msg={msgState} fg={isFg} boxFocus={boxFocused}");
+                        $"[{DateTime.Now:HH:mm:ss.fff}] " +
+                        $"ctx={ctxState} msg={msgState} fg={isFg} boxFocus={boxFocused} " +
+                        $"focus=0x{gti.hwndFocus.ToInt64():X} active=0x{gti.hwndActive.ToInt64():X} " +
+                        $"box=0x{hwnd.ToInt64():X} form=0x{form.Handle.ToInt64():X} " +
+                        $"ime=0x{imeWnd.ToInt64():X} boxFocused={box.Focused} " +
+                        $"formIme=0x{ImmGetDefaultIMEWnd(form.Handle).ToInt64():X}");
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // 忽略
+                    // 定时器里抛异常会让报告停止刷新，导致外部读到过期数据。
+                    // 把异常写进报告，避免静默失败。
+                    try
+                    {
+                        File.WriteAllText(
+                            reportPath,
+                            $"[{DateTime.Now:HH:mm:ss.fff}] TIMER-ERROR {ex.GetType().Name}: {ex.Message}");
+                    }
+                    catch
+                    {
+                        // 连报告都写不了，只能放弃。
+                    }
                 }
             };
             timer.Start();

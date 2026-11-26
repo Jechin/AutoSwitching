@@ -23,7 +23,25 @@ public sealed class ForegroundWatcher : IDisposable
     private ImeState _pendingState;
     private volatile bool _disposed;
 
-    private readonly record struct WorkItem(IntPtr Hwnd, string ProcessName, ImeState State, bool Notify);
+    // .NET Framework 4.8 没有 record struct，用普通只读结构体代替。
+    private readonly struct WorkItem
+    {
+        public WorkItem(IntPtr hwnd, string processName, ImeState state, bool notify)
+        {
+            Hwnd = hwnd;
+            ProcessName = processName;
+            State = state;
+            Notify = notify;
+        }
+
+        public IntPtr Hwnd { get; }
+
+        public string ProcessName { get; }
+
+        public ImeState State { get; }
+
+        public bool Notify { get; }
+    }
 
     /// <summary>每次成功应用规则后触发，参数为进程名与目标状态。</summary>
     public event Action<string, ImeState>? RuleApplied;
@@ -129,7 +147,7 @@ public sealed class ForegroundWatcher : IDisposable
         }
 
         string? processName = GetProcessName(hwnd);
-        if (string.IsNullOrEmpty(processName))
+        if (processName is null || processName.Length == 0)
         {
             DebugLog.Write($"HandleForeground: no process name for 0x{hwnd.ToInt64():X}");
             return;
@@ -164,7 +182,7 @@ public sealed class ForegroundWatcher : IDisposable
         Enqueue(hwnd, processName, target.Value, notify: true);
 
         // 有些程序在激活后会重置输入法，延迟再补一次。
-        int delay = Math.Clamp(Config.ReapplyDelayMs, 0, 2000);
+        int delay = Clamp(Config.ReapplyDelayMs, 0, 2000);
         if (delay > 0 && _reapplyTimer is not null)
         {
             _pendingHwnd = hwnd;
@@ -197,7 +215,7 @@ public sealed class ForegroundWatcher : IDisposable
         }
 
         string? processName = GetProcessName(hwnd);
-        if (string.IsNullOrEmpty(processName))
+        if (processName is null || processName.Length == 0)
         {
             return;
         }
@@ -283,6 +301,10 @@ public sealed class ForegroundWatcher : IDisposable
             return "AutoSwitching.exe";
         }
     }
+
+    /// <summary>.NET Framework 4.8 没有 Math.Clamp。</summary>
+    private static int Clamp(int value, int min, int max) =>
+        value < min ? min : value > max ? max : value;
 
     public void Dispose()
     {

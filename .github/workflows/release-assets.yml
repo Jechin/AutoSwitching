@@ -1,9 +1,12 @@
 name: release-assets
 
-# 手动触发：在 GitHub 的 runner 上构建自包含单文件并挂到指定 Release 上。
+# 手动触发：在 runner 上构建单文件 exe 并挂到指定 Release 上。
 #
-# 为什么需要这个工作流：本机网络经公司代理，上传上限约 1MB，
-# 无法直接上传 60MB 左右的自包含包。runner 出网不受此限制。
+# 目标框架是 net48，产物是单个约 45 KB 的 exe，零运行时依赖，
+# 因此不再需要区分「自包含 / 依赖运行时」两种包，只有一个 zip。
+#
+# 之所以仍放在 runner 上构建：本机网络经公司代理、上传受限，
+# 且可保证发布物由干净的 CI 环境产出。
 on:
   workflow_dispatch:
     inputs:
@@ -11,16 +14,6 @@ on:
         description: '要附加资产的 tag（必须已存在）'
         required: true
         default: 'v1.0.0'
-      self_contained:
-        description: '上传自包含（免安装运行时）版本'
-        type: boolean
-        required: false
-        default: true
-      framework_dependent:
-        description: '上传依赖运行时（轻量）版本'
-        type: boolean
-        required: false
-        default: true
 
 permissions:
   contents: write
@@ -48,39 +41,32 @@ jobs:
           "version=$v" >> $env:GITHUB_OUTPUT
           Write-Host "version = $v"
 
-      - name: Publish self-contained
-        if: ${{ inputs.self_contained }}
+      - name: Build
         shell: pwsh
         run: |
-          dotnet publish src/AutoSwitching/AutoSwitching.csproj `
-            -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true `
-            -p:EnableCompressionInSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -o dist/self-contained
-          Compress-Archive -Path dist/self-contained/AutoSwitching.exe `
-            -DestinationPath "dist/AutoSwitching-${{ steps.ver.outputs.version }}-win-x64-self-contained.zip" -Force
+          # net48 只需普通 build，不需要 publish / RID / 单文件打包参数
+          dotnet build src/AutoSwitching/AutoSwitching.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
-      - name: Publish framework-dependent
-        if: ${{ inputs.framework_dependent }}
+      - name: Package
         shell: pwsh
         run: |
-          dotnet publish src/AutoSwitching/AutoSwitching.csproj `
-            -c Release -r win-x64 --self-contained false `
-            -p:PublishSingleFile=true `
-            -o dist/framework-dependent
-          Compress-Archive -Path dist/framework-dependent/AutoSwitching.exe `
-            -DestinationPath "dist/AutoSwitching-${{ steps.ver.outputs.version }}-win-x64-framework-dependent.zip" -Force
+          $exe = "src/AutoSwitching/bin/Release/net48/AutoSwitching.exe"
+          if (-not (Test-Path $exe)) { throw "not found: $exe" }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          # 只打包 exe 本身：它是自包含的，不需要 .exe.config
+          Compress-Archive -Path $exe `
+            -DestinationPath "dist/AutoSwitching-${{ steps.ver.outputs.version }}-win-x64.zip" -Force
 
-      - name: Show checksums
+      - name: Show checksum
         shell: pwsh
         run: |
           Get-ChildItem dist/*.zip | ForEach-Object {
             $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-            Write-Host "$($_.Name)  sha256=$h  size=$([math]::Round($_.Length/1MB,1))MB"
+            Write-Host "$($_.Name)  sha256=$h  size=$([math]::Round($_.Length/1KB,1))KB"
           }
 
-      - name: Upload assets to release
+      - name: Upload asset to release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -95,6 +81,6 @@ jobs:
       - name: Upload workflow artifact (backup)
         uses: actions/upload-artifact@v4
         with:
-          name: release-zips
+          name: release-zip
           path: dist/*.zip
           if-no-files-found: error

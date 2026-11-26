@@ -11,6 +11,9 @@ x86/
 artifacts/
 publish/
 dist/
+# 临时验证用的隔离目录（历史遗留，勿提交）
+_iso_test/
+_cfgtest/
 *.user
 *.suo
 *.userosscache

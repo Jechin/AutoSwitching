@@ -1,6 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
-
 namespace AutoSwitching.Core;
 
 /// <summary>一条程序规则。</summary>
@@ -79,20 +76,32 @@ public sealed class AppConfig
 /// <summary>配置读写。</summary>
 public static class ConfigStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    /// <summary>
+    /// 覆盖配置目录的环境变量名。
+    /// 测试脚本用它把配置重定向到临时目录，从而完全不触碰用户的真实配置。
+    /// </summary>
+    public const string ConfigDirectoryOverrideVariable = "AUTOSWITCHING_CONFIG_DIR";
 
     /// <summary>配置文件所在目录。</summary>
-    public static string ConfigDirectory { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "AutoSwitching");
+    public static string ConfigDirectory { get; } = ResolveConfigDirectory();
 
     /// <summary>配置文件完整路径。</summary>
     public static string ConfigPath { get; } = Path.Combine(ConfigDirectory, "config.json");
+
+    private static string ResolveConfigDirectory()
+    {
+        // 允许通过环境变量重定向，供自动化测试使用。
+        // 这样测试永远不需要备份/还原真实配置，也就不存在「中断后配置丢失」的问题。
+        string? overridden = Environment.GetEnvironmentVariable(ConfigDirectoryOverrideVariable);
+        if (!string.IsNullOrWhiteSpace(overridden))
+        {
+            return overridden.Trim();
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "AutoSwitching");
+    }
 
     public static AppConfig Load()
     {
@@ -101,7 +110,7 @@ public static class ConfigStore
             if (File.Exists(ConfigPath))
             {
                 string json = File.ReadAllText(ConfigPath);
-                AppConfig? config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
+                AppConfig? config = Deserialize(json);
                 if (config is not null)
                 {
                     config.Rules ??= new List<AppRule>();
@@ -120,12 +129,152 @@ public static class ConfigStore
     public static void Save(AppConfig config)
     {
         Directory.CreateDirectory(ConfigDirectory);
-        string json = JsonSerializer.Serialize(config, JsonOptions);
+        string json = Serialize(config);
 
         // 先写临时文件再替换，避免写入中断导致配置损坏。
         string tempPath = ConfigPath + ".tmp";
-        File.WriteAllText(tempPath, json);
-        File.Move(tempPath, ConfigPath, overwrite: true);
+        File.WriteAllText(tempPath, json, new System.Text.UTF8Encoding(false));
+
+        if (File.Exists(ConfigPath))
+        {
+            File.Replace(tempPath, ConfigPath, null);
+        }
+        else
+        {
+            File.Move(tempPath, ConfigPath);
+        }
+    }
+
+    /// <summary>把配置序列化为 JSON 文本。</summary>
+    internal static string Serialize(AppConfig config)
+    {
+        var w = new JsonWriter();
+        w.BeginObject();
+
+        w.Name("enabled");
+        w.Value(config.Enabled);
+
+        w.Name("defaultState");
+        if (config.DefaultState is null)
+        {
+            w.Null();
+        }
+        else
+        {
+            w.Value(config.DefaultState.Value.ToString());
+        }
+
+        w.Name("reapplyDelayMs");
+        w.Value(config.ReapplyDelayMs);
+
+        w.Name("rules");
+        w.BeginArray();
+        foreach (AppRule rule in config.Rules)
+        {
+            w.BeginObject();
+            w.Name("processName");
+            w.Value(rule.ProcessName);
+            w.Name("state");
+            w.Value(rule.State.ToString());
+            w.Name("enabled");
+            w.Value(rule.Enabled);
+            w.Name("note");
+            w.Value(rule.Note);
+            w.EndObject();
+        }
+
+        w.EndArray();
+        w.EndObject();
+
+        return w.ToString();
+    }
+
+    /// <summary>从 JSON 文本还原配置，格式不合法时返回 null。</summary>
+    internal static AppConfig? Deserialize(string json)
+    {
+        Dictionary<string, object?>? root;
+        try
+        {
+            root = JsonReader.Parse(json) as Dictionary<string, object?>;
+        }
+        catch (FormatException)
+        {
+            // 配置被手工改坏时不应让程序崩溃，交给调用方回退到默认配置。
+            return null;
+        }
+
+        if (root is null)
+        {
+            return null;
+        }
+
+        var config = new AppConfig
+        {
+            Enabled = ReadBool(root, "enabled", true),
+            DefaultState = ReadState(root, "defaultState"),
+            ReapplyDelayMs = ReadInt(root, "reapplyDelayMs", 120),
+        };
+
+        if (root.TryGetValue("rules", out object? rulesValue) && rulesValue is List<object?> rules)
+        {
+            foreach (object? item in rules)
+            {
+                if (item is not Dictionary<string, object?> ruleObj)
+                {
+                    continue;
+                }
+
+                config.Rules.Add(new AppRule
+                {
+                    ProcessName = ReadString(ruleObj, "processName"),
+                    State = ReadState(ruleObj, "state") ?? ImeState.English,
+                    Enabled = ReadBool(ruleObj, "enabled", true),
+                    Note = ReadString(ruleObj, "note"),
+                });
+            }
+        }
+
+        return config;
+    }
+
+    private static string ReadString(Dictionary<string, object?> obj, string name) =>
+        obj.TryGetValue(name, out object? value) && value is string s ? s : string.Empty;
+
+    private static bool ReadBool(Dictionary<string, object?> obj, string name, bool fallback) =>
+        obj.TryGetValue(name, out object? value) && value is bool b ? b : fallback;
+
+    private static int ReadInt(Dictionary<string, object?> obj, string name, int fallback) =>
+        obj.TryGetValue(name, out object? value) && value is double d ? (int)d : fallback;
+
+    private static ImeState? ReadState(Dictionary<string, object?> obj, string name)
+    {
+        if (!obj.TryGetValue(name, out object? value))
+        {
+            return null;
+        }
+
+        // 兼容三种写法：枚举名（"Chinese"/"English"）、数字（0/1）、以及 JSON 数字。
+        if (value is double d)
+        {
+            return d == 0 ? ImeState.Chinese : d == 1 ? ImeState.English : null;
+        }
+
+        if (value is not string s)
+        {
+            return null;
+        }
+
+        if (string.Equals(s, nameof(ImeState.Chinese), StringComparison.OrdinalIgnoreCase) || s == "0")
+        {
+            return ImeState.Chinese;
+        }
+
+        if (string.Equals(s, nameof(ImeState.English), StringComparison.OrdinalIgnoreCase) || s == "1")
+        {
+            return ImeState.English;
+        }
+
+        return null;
     }
 
     private static AppConfig CreateDefault() => new()

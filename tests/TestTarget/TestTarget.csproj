@@ -2,11 +2,30 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+
+    <!--
+      与主项目保持一致，同样使用 .NET Framework 4.8：
+      这样测试环境不需要额外安装 .NET 8 运行时，克隆仓库后直接能跑 E2E。
+    -->
+    <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+
     <AssemblyName>TestTarget</AssemblyName>
     <RootNamespace>TestTarget</RootNamespace>
-    <IsPackable>false</IsPackable>
+
+    <!-- 与主项目一致，避免 32/64 位差异影响 IME 测试结果 -->
+    <Prefer32Bit>false</Prefer32Bit>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>false</GenerateBindingRedirectsOutputType>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 本机未安装 .NET Framework 4.8 目标包，用 NuGet 提供引用程序集（仅编译期） -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
 
 </Project>

@@ -133,7 +133,9 @@ public sealed class SettingsForm : Form
 
         _processInput.Location = new Point(80, 236);
         _processInput.Width = 180;
-        _processInput.PlaceholderText = "例如 chrome.exe";
+
+        // .NET Framework 4.8 的 TextBox 没有 PlaceholderText，用灰色提示文字模拟。
+        SetPlaceholder(_processInput, "例如 chrome.exe");
 
         _pickWindowButton.Text = "取当前窗口";
         _pickWindowButton.Location = new Point(268, 234);
@@ -233,9 +235,58 @@ public sealed class SettingsForm : Form
             ImeState.English => 2,
             _ => 0,
         };
-        _delayInput.Value = Math.Clamp(_config.ReapplyDelayMs, 0, 2000);
+        _delayInput.Value = Clamp(_config.ReapplyDelayMs, 0, 2000);
 
         RefreshRuleList();
+    }
+
+    /// <summary>.NET Framework 4.8 没有 Math.Clamp。</summary>
+    private static int Clamp(int value, int min, int max) =>
+        value < min ? min : value > max ? max : value;
+
+    /// <summary>
+    /// 用覆盖在 TextBox 上的灰色 Label 模拟 PlaceholderText
+    /// （.NET Framework 4.8 的 TextBox 没有该属性）。
+    /// 这样不会污染 TextBox.Text，读取时无需特殊处理。
+    /// </summary>
+    private static void SetPlaceholder(TextBox box, string placeholder)
+    {
+        var hint = new Label
+        {
+            Text = placeholder,
+            ForeColor = SystemColors.GrayText,
+            BackColor = SystemColors.Window,
+            AutoSize = false,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Location = new Point(box.Left + 2, box.Top + 1),
+            Size = new Size(box.Width - 4, box.Height - 2),
+            Cursor = Cursors.IBeam,
+        };
+
+        void Sync() => hint.Visible = box.Text.Length == 0 && box.Visible;
+
+        box.TextChanged += (_, _) => Sync();
+        box.GotFocus += (_, _) => Sync();
+        box.LostFocus += (_, _) => Sync();
+
+        // 点击提示文字时把焦点交给输入框。
+        hint.Click += (_, _) => box.Focus();
+
+        // 调用时 TextBox 可能还没加入父容器，等它有了父容器再挂上去。
+        void Attach()
+        {
+            if (box.Parent is null || hint.Parent is not null)
+            {
+                return;
+            }
+
+            box.Parent.Controls.Add(hint);
+            hint.BringToFront();
+            Sync();
+        }
+
+        box.ParentChanged += (_, _) => Attach();
+        Attach();
     }
 
     private void RefreshRuleList()

@@ -2,18 +2,59 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+
+    <!--
+      目标框架选择 .NET Framework 4.8 而不是 .NET 8，是为了「零依赖 + 极小体积」：
+      Windows 10 1903 及以上、Windows 11 都自带 .NET Framework 4.8 运行时，
+      用户拿到单个 exe 双击即可运行，无需安装任何运行时。
+      产物约 50 KB，常驻内存约 12 MB。
+    -->
+    <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+
     <AssemblyName>AutoSwitching</AssemblyName>
     <RootNamespace>AutoSwitching</RootNamespace>
-    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <ApplicationDefaultFont>Microsoft YaHei UI, 9pt</ApplicationDefaultFont>
+
+    <!--
+      .NET Framework 的 WinExe 项目默认 Prefer32Bit=true，会以 32 位进程运行。
+      跨进程操作 64 位程序的 IME 时 32 位进程并不可靠，这里强制以 64 位运行。
+    -->
+    <Prefer32Bit>false</Prefer32Bit>
+    <PlatformTarget>AnyCPU</PlatformTarget>
 
     <!-- 应用元数据：显示在文件属性与托盘提示里 -->
     <Product>自动输入法切换</Product>
     <AssemblyTitle>自动输入法切换</AssemblyTitle>
     <Description>按前台窗口所属程序自动切换输入法中/英状态</Description>
     <Version>1.0.0</Version>
+    <Company>AutoSwitching</Company>
+
+    <!-- 高 DPI 由 app.manifest 声明，net48 没有 ApplicationHighDpiMode 属性 -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- 不生成调试符号与 XML 文档，减小发布体积 -->
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!-- 关闭用不到的 ClickOnce / 绑定重定向 -->
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>false</GenerateBindingRedirectsOutputType>
+
+    <!--
+      不生成 AutoSwitching.exe.config。
+      该文件只包含 supportedRuntime 声明，而 .NET Framework 4.x 是 Win10/11 上
+      唯一的 4.x 运行时，没有它也能正常启动。去掉后发布目录里就只剩一个 exe，
+      真正做到「单文件零依赖」。
+    -->
+    <GenerateSupportedRuntime>false</GenerateSupportedRuntime>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      本机没有安装 .NET Framework 4.8 目标包（Targeting Pack），
+      用这个 NuGet 包提供引用程序集：仅编译期需要，运行时不需要。
+    -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
 
 </Project>

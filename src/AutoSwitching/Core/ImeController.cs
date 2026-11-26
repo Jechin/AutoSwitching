@@ -140,7 +140,14 @@ public static class ImeController
     {
         try
         {
-            IntPtr imeWnd = NativeMethods.ImmGetDefaultIMEWnd(hwnd);
+            // 关键：IME 状态属于「拥有键盘焦点的那个子窗口」，而不是顶层窗口。
+            // 例如 WinForms 的 TextBox 有自己的 IME 上下文，
+            // 只改顶层窗口的 IME 窗口不会影响实际输入。
+            IntPtr target = GetFocusedWindow(hwnd);
+            IntPtr imeWnd = NativeMethods.ImmGetDefaultIMEWnd(target);
+            DebugLog.Write(
+                $"SetOpenStatus: hwnd=0x{hwnd.ToInt64():X} target=0x{target.ToInt64():X} " +
+                $"imeWnd=0x{imeWnd.ToInt64():X} open={open}");
             if (imeWnd == IntPtr.Zero)
             {
                 return false;
@@ -154,8 +161,9 @@ public static class ImeController
                 (IntPtr)(open ? 1 : 0),
                 NativeMethods.SMTO_ABORTIFHUNG | NativeMethods.SMTO_BLOCK,
                 500,
-                out _);
+                out IntPtr _);
 
+            DebugLog.Write($"SetOpenStatus: sent=0x{sent.ToInt64():X} lastError={Marshal.GetLastWin32Error()}");
             return sent != IntPtr.Zero;
         }
         catch
@@ -168,7 +176,12 @@ public static class ImeController
     {
         try
         {
-            IntPtr imeWnd = NativeMethods.ImmGetDefaultIMEWnd(hwnd);
+            // 与 SetOpenStatusViaMessage 保持一致：查询焦点子窗口的 IME 状态。
+            IntPtr target = GetFocusedWindow(hwnd);
+            IntPtr imeWnd = NativeMethods.ImmGetDefaultIMEWnd(target);
+            DebugLog.Write(
+                $"QueryOpenStatus: hwnd=0x{hwnd.ToInt64():X} target=0x{target.ToInt64():X} " +
+                $"imeWnd=0x{imeWnd.ToInt64():X}");
             if (imeWnd == IntPtr.Zero)
             {
                 return InvalidResult;
@@ -183,6 +196,7 @@ public static class ImeController
                 500,
                 out IntPtr result);
 
+            DebugLog.Write($"QueryOpenStatus: sent=0x{sent.ToInt64():X} result=0x{result.ToInt64():X} lastError={Marshal.GetLastWin32Error()}");
             return sent != IntPtr.Zero ? result : InvalidResult;
         }
         catch
@@ -217,7 +231,7 @@ public static class ImeController
     /// <summary>找到目标窗口所在线程真正拥有键盘焦点的子窗口。</summary>
     private static IntPtr GetFocusedWindow(IntPtr fallback)
     {
-        uint threadId = NativeMethods.GetWindowThreadProcessId(fallback, out _);
+        uint threadId = NativeMethods.GetWindowThreadProcessId(fallback, out uint _);
         if (threadId == 0)
         {
             return fallback;
@@ -225,7 +239,8 @@ public static class ImeController
 
         var info = new NativeMethods.GUITHREADINFO
         {
-            cbSize = Marshal.SizeOf<NativeMethods.GUITHREADINFO>(),
+            // .NET Framework 4.8 没有 Marshal.SizeOf<T>()，用非泛型重载。
+            cbSize = Marshal.SizeOf(typeof(NativeMethods.GUITHREADINFO)),
         };
 
         if (NativeMethods.GetGUIThreadInfo(threadId, ref info))

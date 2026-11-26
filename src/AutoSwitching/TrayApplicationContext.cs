@@ -156,7 +156,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     }
 
     private static string Truncate(string text, int max) =>
-        text.Length <= max ? text : text[..max];
+        text.Length <= max ? text : text.Substring(0, max);
 
     private void ExitApplication()
     {

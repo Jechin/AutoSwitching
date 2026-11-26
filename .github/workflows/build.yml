@@ -32,10 +32,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AutoSwitching-Release
-          path: src/AutoSwitching/bin/Release/net8.0-windows/AutoSwitching.exe
+          path: src/AutoSwitching/bin/Release/net48/AutoSwitching.exe
           if-no-files-found: error
           retention-days: 14
 
-  # 注意：tests/ 下的端到端脚本需要真实桌面会话与前台焦点，
-  # 在 GitHub Actions 的无人值守环境里无法可靠运行，故不纳入 CI。
-  # 需要时请在本机交互式运行 tests/run-both.ps1。
+  # 注意：跨进程 IME 切换需要目标窗口拿到真实键盘焦点，
+  # 在 GitHub Actions 的无人值守环境里无法可靠验证，故不纳入 CI。
+  # 自动化检查（产物 + 进程内自检 + 配置读写）可在本机运行：
+  #   powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1
