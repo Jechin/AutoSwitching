@@ -1,0 +1,41 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore AutoSwitching.sln
+
+      - name: Build
+        run: dotnet build AutoSwitching.sln -c Release --no-restore
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoSwitching-Release
+          path: src/AutoSwitching/bin/Release/net8.0-windows/AutoSwitching.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  # 注意：tests/ 下的端到端脚本需要真实桌面会话与前台焦点，
+  # 在 GitHub Actions 的无人值守环境里无法可靠运行，故不纳入 CI。
+  # 需要时请在本机交互式运行 tests/run-both.ps1。

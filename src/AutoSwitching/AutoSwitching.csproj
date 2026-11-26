@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>AutoSwitching</AssemblyName>
+    <RootNamespace>AutoSwitching</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationDefaultFont>Microsoft YaHei UI, 9pt</ApplicationDefaultFont>
+
+    <!-- 应用元数据：显示在文件属性与托盘提示里 -->
+    <Product>自动输入法切换</Product>
+    <AssemblyTitle>自动输入法切换</AssemblyTitle>
+    <Description>按前台窗口所属程序自动切换输入法中/英状态</Description>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+</Project>

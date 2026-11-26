@@ -1,0 +1,38 @@
+# 统一换行符：仓库内一律存 LF，检出时按平台/类型转换。
+# 这样在 WSL / macOS / Linux 上编辑不会把 CRLF 混进仓库。
+* text=auto eol=lf
+
+# C# / 项目文件 / 配置：始终 LF
+*.cs      text eol=lf
+*.csproj  text eol=lf
+*.sln     text eol=lf
+*.props   text eol=lf
+*.targets text eol=lf
+*.json    text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+.editorconfig   text eol=lf
+
+# Windows 脚本：必须保持 CRLF，否则 cmd.exe 解析会出问题
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+# PowerShell：Windows PowerShell 5.1 对 LF 的 .ps1 兼容性较差，保持 CRLF
+*.ps1  text eol=crlf
+
+# 二进制
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.zip   binary
+*.exe   binary
+*.dll   binary
+*.pdb   binary
+
+# 避免 git 在 diff / 状态里把 .cs 当二进制
+*.cs diff=csharp

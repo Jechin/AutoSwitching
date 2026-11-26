@@ -1,0 +1,22 @@
+<Project>
+
+  <!--
+    所有子项目共享的编译设置。
+    放在仓库根目录，MSBuild 会自动向上查找并应用，子项目无需重复声明。
+  -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- 只构建中文与英文的卫星资源，避免多余的本地化目录 -->
+    <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
+
+    <!-- 本程序依赖系统输入法，不能启用固定区域性 -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <!-- 生成确定性构建，便于复现问题 -->
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+</Project>

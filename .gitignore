@@ -1,0 +1,80 @@
+# ---------- .NET 构建产物 ----------
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+artifacts/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ---------- Visual Studio / Rider / VS Code ----------
+.vs/
+.vscode/
+.idea/
+*.rduser
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# ---------- 编译产物 ----------
+*.dll
+*.exe
+*.pdb
+*.mdb
+*.ilk
+*.cache
+*.class
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# 例外：源码目录里不该有 exe/dll，但测试数据若需要可在此单独放行
+
+# ---------- NuGet ----------
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+project.lock.json
+project.fragment.lock.json
+.nuget/
+
+# ---------- 测试与诊断输出 ----------
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+coverlet/
+coverage*.json
+coverage*.xml
+coverage*.info
+TestResults/
+
+# 本程序自身产生的日志 / 报告（DebugLog 写 %TEMP%，这里兜底）
+autoswitching.log
+autoswitching-selftest.txt
+target-ime-report.txt
+
+# ---------- 操作系统 ----------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*~
+*.swp
+*.bak
+*.tmp
+
+# ---------- WSL / 跨平台挂载 ----------
+/mnt/
+.wslconfig
