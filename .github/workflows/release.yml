@@ -1,0 +1,165 @@
+name: release
+
+# 推送 v* tag 时自动发布；也支持手动触发（为已存在的 tag 补挂资产）。
+#
+# 目标框架是 net48，产物是单个约 46 KB 的 exe，零运行时依赖，
+# 因此只有一个 zip，不再区分「自包含 / 依赖运行时」。
+#
+# 在 runner 上构建而不是本机：本机网络经公司代理、上传受限，
+# 且可保证发布物由干净的 CI 环境产出。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布或补挂资产的 tag（必须已存在）'
+        required: true
+        default: 'v2.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # 自动触发时用 tag 名（refs/tags/v2.0.0 → v2.0.0）；
+      # 手动触发时用输入的 tag。
+      - name: Resolve tag
+        id: tag
+        shell: pwsh
+        run: |
+          $tag = if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            '${{ inputs.tag }}'
+          } else {
+            '${{ github.ref_name }}'
+          }
+          if (-not $tag) { throw "无法确定 tag" }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "tag = $tag"
+
+      - name: Read version
+        id: ver
+        shell: pwsh
+        run: |
+          [xml]$csproj = Get-Content src/AutoSwitching/AutoSwitching.csproj
+          $v = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if (-not $v) { throw "csproj 中缺少 Version" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "version = $v"
+
+      - name: Build
+        shell: pwsh
+        run: |
+          # net48 只需普通 build，不需要 publish / RID / 单文件打包参数
+          dotnet build src/AutoSwitching/AutoSwitching.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          # 发布前做一次进程内自检，避免把不能用的包发出去。
+          $exe = "src/AutoSwitching/bin/Release/net48/AutoSwitching.exe"
+          if (-not (Test-Path $exe)) { throw "not found: $exe" }
+
+          $report = Join-Path $env:TEMP "autoswitching-selftest.txt"
+          Remove-Item $report -ErrorAction SilentlyContinue
+          Start-Process -FilePath $exe -ArgumentList "--selftest", "--auto" | Out-Null
+
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Get-Date) -lt $deadline -and -not (Test-Path $report)) {
+            Start-Sleep -Milliseconds 300
+          }
+          Get-Process AutoSwitching -ErrorAction SilentlyContinue | Stop-Process -Force
+
+          if (-not (Test-Path $report)) { throw "自检未生成结果文件" }
+          $text = Get-Content $report -Raw -Encoding UTF8
+          Write-Host $text
+          if ($text -notmatch '本机 IME 切换可用') { throw "自检未通过" }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $exe = "src/AutoSwitching/bin/Release/net48/AutoSwitching.exe"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          # 只打包 exe 本身：它是自包含的，不需要 .exe.config
+          Compress-Archive -Path $exe `
+            -DestinationPath "dist/AutoSwitching-${{ steps.ver.outputs.version }}-win-x64.zip" -Force
+
+      - name: Show checksum
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/*.zip | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            Write-Host "$($_.Name)  sha256=$h  size=$([math]::Round($_.Length/1KB,1))KB"
+            "sha256=$h" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Create or update release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VER: ${{ steps.ver.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          $tag  = $env:TAG
+          $ver  = $env:VER
+          $zip  = (Get-ChildItem dist/*.zip | Select-Object -First 1).FullName
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          $size = [math]::Round((Get-Item $zip).Length / 1KB, 1)
+
+          $lines = @(
+            "## 自动输入法切换 v$ver",
+            "",
+            "按**前台窗口所属程序**自动切换输入法的中/英状态。",
+            "",
+            "### 下载",
+            "",
+            "``AutoSwitching-$ver-win-x64.zip`` — 解压后得到单个 ``AutoSwitching.exe``",
+            "",
+            "- **零依赖**：不需要安装任何运行时（.NET Framework 4.8 已内置于 Win10 1903+ / Win11）",
+            "- **体积**：约 46 KB",
+            "- **系统要求**：Windows 10 1903 及以上 / Windows 11，x64",
+            "",
+            "### 校验",
+            "",
+            '```',
+            "sha256: $hash",
+            "size  : $size KB",
+            '```',
+            "",
+            "完整说明见 [README](https://github.com/$env:REPO/blob/$tag/README.md)。"
+          )
+          $lines | Out-File -FilePath notes.md -Encoding utf8
+
+          # 先探测是否已存在 release：存在则只更新附件，不存在则创建
+          gh release view $tag --repo $env:REPO *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "release $tag 已存在，更新资产"
+            gh release upload $tag $zip --clobber --repo $env:REPO
+            if ($LASTEXITCODE -ne 0) { throw "上传资产失败" }
+          } else {
+            Write-Host "创建 release $tag"
+            gh release create $tag $zip --title "自动输入法切换 $tag" `
+              --notes-file notes.md --repo $env:REPO
+            if ($LASTEXITCODE -ne 0) { throw "创建 release 失败" }
+          }
+
+      - name: Upload workflow artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-zip
+          path: dist/*.zip
+          if-no-files-found: error

@@ -197,7 +197,7 @@ $env:AUTOSWITCHING_DEBUG = "1"
 ├── build.cmd                    # 一键构建
 ├── .github/workflows/
 │   ├── build.yml                # 推送即构建
-│   └── release-assets.yml       # 手动触发，构建并上传发布附件
+│   └── release.yml              # 推送 v* tag 时自动构建并发布
 ├── src/
 │   └── AutoSwitching/
 │       ├── AutoSwitching.csproj # net48，单文件零依赖
