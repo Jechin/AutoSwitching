@@ -1,0 +1,100 @@
+name: release-assets
+
+# 手动触发：在 GitHub 的 runner 上构建自包含单文件并挂到指定 Release 上。
+#
+# 为什么需要这个工作流：本机网络经公司代理，上传上限约 1MB，
+# 无法直接上传 60MB 左右的自包含包。runner 出网不受此限制。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要附加资产的 tag（必须已存在）'
+        required: true
+        default: 'v1.0.0'
+      self_contained:
+        description: '上传自包含（免安装运行时）版本'
+        type: boolean
+        required: false
+        default: true
+      framework_dependent:
+        description: '上传依赖运行时（轻量）版本'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Read version
+        id: ver
+        shell: pwsh
+        run: |
+          [xml]$csproj = Get-Content src/AutoSwitching/AutoSwitching.csproj
+          $v = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if (-not $v) { $v = '1.0.0' }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "version = $v"
+
+      - name: Publish self-contained
+        if: ${{ inputs.self_contained }}
+        shell: pwsh
+        run: |
+          dotnet publish src/AutoSwitching/AutoSwitching.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o dist/self-contained
+          Compress-Archive -Path dist/self-contained/AutoSwitching.exe `
+            -DestinationPath "dist/AutoSwitching-${{ steps.ver.outputs.version }}-win-x64-self-contained.zip" -Force
+
+      - name: Publish framework-dependent
+        if: ${{ inputs.framework_dependent }}
+        shell: pwsh
+        run: |
+          dotnet publish src/AutoSwitching/AutoSwitching.csproj `
+            -c Release -r win-x64 --self-contained false `
+            -p:PublishSingleFile=true `
+            -o dist/framework-dependent
+          Compress-Archive -Path dist/framework-dependent/AutoSwitching.exe `
+            -DestinationPath "dist/AutoSwitching-${{ steps.ver.outputs.version }}-win-x64-framework-dependent.zip" -Force
+
+      - name: Show checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/*.zip | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            Write-Host "$($_.Name)  sha256=$h  size=$([math]::Round($_.Length/1MB,1))MB"
+          }
+
+      - name: Upload assets to release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ inputs.tag }}"
+          Get-ChildItem dist/*.zip | ForEach-Object {
+            Write-Host "uploading $($_.Name) to release $tag"
+            gh release upload $tag $_.FullName --clobber --repo ${{ github.repository }}
+            if ($LASTEXITCODE -ne 0) { throw "upload failed: $($_.Name)" }
+          }
+
+      - name: Upload workflow artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-zips
+          path: dist/*.zip
+          if-no-files-found: error
